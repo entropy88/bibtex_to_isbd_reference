@@ -1,0 +1,158 @@
+const fs = require('fs');
+const path = require('path');
+const { Document, Packer, Paragraph, TextRun } = require('docx');
+
+const inputPath = path.join(__dirname, 'shelf.bibtex');
+const outputPath = path.join(__dirname, 'sorted_shelf.docx');
+
+const rawData = fs.readFileSync(inputPath, 'utf8');
+
+// Split entries by '@' but keep '@'
+const entries = rawData
+  .split(/\n(?=@)/)
+  .map(e => e.trim())
+  .filter(Boolean);
+
+// Extract last occurrence of a property
+function getProp(entry, propName) {
+  const regex = new RegExp(`${propName}\\s*=\\s*\\{([^}]*)\\}`, 'gi');
+  let match;
+  let last = null;
+  while ((match = regex.exec(entry)) !== null) {
+    last = match[1].trim();
+  }
+  return last;
+}
+
+// Format a book in ISBD style
+function formatBook(entry) {
+  const sortWord = getProp(entry, 'sort_word') || getProp(entry, 'author') || '';
+  const author = getProp(entry, 'author') || '';
+  const title = getProp(entry, 'title') || '';
+  const subtitle = getProp(entry, 'subtitle') || '';
+  const responsibility = getProp(entry, 'responsibility') || author;
+  const edition = getProp(entry, 'edition') || '';
+  const place = getProp(entry, 'address') || getProp(entry, 'place') || '';
+  const publisher = getProp(entry, 'publisher') || '';
+  const year = getProp(entry, 'year') || '';
+  const extent = getProp(entry, 'extent') || '';
+  const dimensions = getProp(entry, 'dimensions') || '';
+  const series = getProp(entry, 'series') || '';
+  const isbn = getProp(entry, 'isbn') || '';
+  const note = getProp(entry, 'abstract') || '';
+
+  let line1 = `${sortWord}`;
+  let line2 = `  ${title}`;
+  if (subtitle) line2 += ` : ${subtitle}`;
+  if (responsibility) line2 += ` / ${responsibility}`;
+  if (edition) line2 += `. – ${edition}`;
+
+  if (place || publisher || year) {
+    let pubBlock = '';
+    if (place) pubBlock += place;
+    if (publisher) pubBlock += (pubBlock ? ' : ' : '') + publisher;
+    if (year) pubBlock += (pubBlock ? ', ' : '') + year;
+    line2 += `. – ${pubBlock}`;
+  }
+
+  if (extent || dimensions) {
+    let physBlock = '';
+    if (extent) physBlock += extent;
+    if (dimensions) physBlock += (physBlock ? ' ; ' : '') + dimensions;
+    line2 += `. – ${physBlock}`;
+  }
+
+  if (series) line2 += `. – (${series})`;
+  if (isbn) line2 += `. – ISBN ${isbn}`;
+
+  return { mainLine: `${line1}\n${line2}`, note };
+}
+
+// Format an analytical record (article) in ISBD style
+function formatArticle(entry) {
+  const sortWord = getProp(entry, 'sort_word') || '';
+  const author = getProp(entry, 'author') || '';
+  const title = getProp(entry, 'title') || '';
+  const source = getProp(entry, 'source') || '';
+  const number = getProp(entry, 'number') || '';
+  const year = getProp(entry, 'year') || '';
+  const pages = getProp(entry, 'art_pages') || '';
+  const note = getProp(entry, 'abstract') || '';
+
+  let line1 = `${sortWord}`;
+  let line2 = `  ${title} / ${author}. - В: ${source}`;
+  if (number) line2 += `. - бр. ${number}`;
+  line2 += `, (${year}), ${pages}`;
+
+  return { mainLine: `${line1}\n${line2}`, note };
+}
+
+// Parse for sorting
+const parsed = entries.map(entry => {
+  const itemType = (getProp(entry, 'item_type') || '').toUpperCase();
+  const year = parseInt(getProp(entry, 'year'), 10) || 0;
+  return { entry, itemType, year };
+});
+
+// Sort: KNG first, then others; within group by year ASC
+parsed.sort((a, b) => {
+  const aIsKNG = a.itemType === 'KNG';
+  const bIsKNG = b.itemType === 'KNG';
+
+  if (aIsKNG && !bIsKNG) return -1;
+  if (!aIsKNG && bIsKNG) return 1;
+
+  return a.year - b.year;
+});
+
+// Split into categories
+const books = parsed.filter(p => p.itemType === 'KNG');
+const articles = parsed.filter(p => ['JOU', 'KRA', 'ARTICLE'].includes(p.itemType));
+
+// Counts for summary
+const total = parsed.length;
+const bookCount = books.length;
+const articleCount = articles.length;
+
+// Build DOCX
+const children = [];
+
+// Summary at top
+children.push(
+  new Paragraph({
+    children: [new TextRun({ text: `Общо записи: ${total} (Книги: ${bookCount}, Статии: ${articleCount})`, bold: true })]
+  }),
+  new Paragraph({ text: '' }) // blank line
+);
+
+// Books section
+if (books.length > 0) {
+  children.push(new Paragraph({ children: [new TextRun({ text: 'КНИГИ', bold: true })] }));
+  books.forEach(b => {
+    const { mainLine, note } = formatBook(b.entry);
+    mainLine.split('\n').forEach(line => children.push(new Paragraph({ text: line })));
+    if (note) children.push(new Paragraph({ text: note }));
+    children.push(new Paragraph({ text: '' })); // blank line
+  });
+}
+
+// Articles section
+if (articles.length > 0) {
+  children.push(new Paragraph({ children: [new TextRun({ text: 'СТАТИИ', bold: true })] }));
+  articles.forEach(a => {
+    const { mainLine, note } = formatArticle(a.entry);
+    mainLine.split('\n').forEach(line => children.push(new Paragraph({ text: line })));
+    if (note) children.push(new Paragraph({ text: note }));
+    children.push(new Paragraph({ text: '' })); // blank line
+  });
+}
+
+const doc = new Document({
+  sections: [{ children }]
+});
+
+// Save DOCX
+Packer.toBuffer(doc).then(buffer => {
+  fs.writeFileSync(outputPath, buffer);
+  console.log(`Sorted DOCX saved to ${outputPath}`);
+});
