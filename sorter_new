@@ -1,21 +1,21 @@
-const fs = require('fs');
-const path = require('path');
-const { Document, Packer, Paragraph, TextRun } = require('docx');
+const fs = require("fs");
+const path = require("path");
+const { Document, Packer, Paragraph, TextRun } = require("docx");
 
-const inputPath = path.join(__dirname, 'shelf.bibtex');
-const outputPath = path.join(__dirname, 'sorted_shelf.docx');
+const inputPath = path.join(__dirname, "shelf_old.bibtex");
+const outputPath = path.join(__dirname, "sorted_shelf.docx");
 
-const rawData = fs.readFileSync(inputPath, 'utf8');
+const rawData = fs.readFileSync(inputPath, "utf8");
 
 // Split entries robustly
 const entries = rawData
   .split(/(?=^@)/m)
-  .map(e => e.trim())
+  .map((e) => e.trim())
   .filter(Boolean);
 
 // Extract ALL occurrences of a property
 function getProps(entry, propName) {
-  const regex = new RegExp(`${propName}\\s*=\\s*\\{([^}]*)\\}`, 'gi');
+  const regex = new RegExp(`${propName}\\s*=\\s*\\{([^}]*)\\}`, "gi");
   let match;
   const values = [];
   while ((match = regex.exec(entry)) !== null) {
@@ -27,35 +27,44 @@ function getProps(entry, propName) {
 // Helper: get first value
 function getFirst(entry, propName) {
   const vals = getProps(entry, propName);
-  return vals.length > 0 ? vals[0] : '';
+  return vals.length > 0 ? vals[0] : "";
 }
 
 // Helper: get joined values with deduplication
-function getJoined(entry, propName, sep = '; ') {
+function getJoined(entry, propName, sep = "; ") {
   const vals = getProps(entry, propName);
-  const unique = [...new Set(vals)]; // remove duplicates
+  const unique = [...new Set(vals)];
   return unique.join(sep);
 }
 
 // Format a book in ISBD style
 function formatBook(entry) {
-  const sortWord = getFirst(entry, 'sort_word') || getFirst(entry, 'author') || '';
-  const author = getFirst(entry, 'author') || '';
-  const title = getFirst(entry, 'title') || '';
-  const subtitle = getFirst(entry, 'subtitle') || getFirst(entry, 'substitle') || '';
-  const responsibility = getFirst(entry, 'responsibility') || author;
-  const edition = getJoined(entry, 'edition');
-  const place = getFirst(entry, 'address') || getFirst(entry, 'place') || '';
-  const publisher = getFirst(entry, 'publisher') || '';
-  const year = getFirst(entry, 'year') || '';
-  const extent = getFirst(entry, 'page_count') || getFirst(entry, 'extent') || '';
-  const dimensions = getFirst(entry, 'illustrations') || getFirst(entry, 'dimensions') || '';
-  const series = getFirst(entry, 'series') || '';
-  const isbn = getFirst(entry, 'isbn') || '';
-  const note = getFirst(entry, 'abstract') || '';
-  const book_info = getFirst(entry, 'book_info') || '';
-  const otherSources = getJoined(entry, 'other_sources');
-  const itemTypes = [...new Set(getProps(entry, 'item_type').map(v => v.toUpperCase()))];
+  const main_sig = getFirst(entry, "main_sig") || "";
+  const dep_sig = getFirst(entry, "dep_sig") || "";
+  const sortWord = getFirst(entry, "sort_word") || getFirst(entry, "author") || "";
+  const author = getFirst(entry, "author") || "";
+  const title = getFirst(entry, "title") || "";
+  const subtitle = getFirst(entry, "subtitle") || getFirst(entry, "substitle") || "";
+  const responsibility = getFirst(entry, "responsibility") || author;
+  const edition = getJoined(entry, "edition");
+  const place = getFirst(entry, "address") || getFirst(entry, "place") || "";
+  const publisher = getFirst(entry, "publisher") || "";
+  const year = getFirst(entry, "year") || "";
+  const extent = getFirst(entry, "page_count") || getFirst(entry, "extent") || "";
+  const dimensions = getFirst(entry, "illustrations") || getFirst(entry, "dimensions") || "";
+  const series = getFirst(entry, "series") || "";
+  const isbn = getFirst(entry, "isbn") || "";
+  const book_info = getFirst(entry, "book_info") || "";
+  const otherSources = getJoined(entry, "other_sources");
+  const itemTypes = [...new Set(getProps(entry, "item_type").map((v) => v.toUpperCase()))];
+
+  // collect all notes
+  const notesRaw = getProps(entry, "abstract");
+  const notes = notesRaw.map((n, i) => (i === 0 ? `Съдържа и: ${n}` : n));
+
+  // signature line
+  let line01 = `${main_sig}`;
+  line01 += `       ${dep_sig}`;
 
   let line1 = `${sortWord}`;
   let line2 = `  ${title}`;
@@ -65,73 +74,82 @@ function formatBook(entry) {
   if (book_info) line2 += `. – ${book_info}`;
 
   if (place || publisher || year) {
-    let pubBlock = '';
+    let pubBlock = "";
     if (place) pubBlock += place;
-    if (publisher) pubBlock += (pubBlock ? ' : ' : '') + publisher;
-    if (year) pubBlock += (pubBlock ? ', ' : '') + year;
+    if (publisher) pubBlock += (pubBlock ? " : " : "") + publisher;
+    if (year) pubBlock += (pubBlock ? ", " : "") + year;
     line2 += `. – ${pubBlock}`;
   }
 
   if (extent || dimensions) {
-    let physBlock = '';
+    let physBlock = "";
     if (extent) physBlock += extent;
-    if (dimensions) physBlock += (physBlock ? ' ; ' : '') + dimensions;
+    if (dimensions) physBlock += (physBlock ? " ; " : "") + dimensions;
     line2 += `. – ${physBlock}`;
   }
 
   if (series) line2 += `. – (${series})`;
   if (isbn) line2 += `. – ISBN ${isbn}`;
   if (otherSources) line2 += `. – ${otherSources}`;
-  if (itemTypes.length > 0) line2 += `. – Item types: ${itemTypes.join(', ')}`;
 
-  return { mainLine: `${line1}\n${line2}`, note };
+  let itemTypeLine = "";
+  if (itemTypes.length > 0) {
+    itemTypeLine = `Item types: ${itemTypes.join(", ")}`;
+  }
+
+  return { mainLine: `${line01}\n${line1}\n${line2}`, notes, itemTypeLine };
 }
 
 // Format an article in ISBD style
 function formatArticle(entry) {
-  const sortWord = getFirst(entry, 'sort_word') || '';
-  const author = getFirst(entry, 'author') || '';
-  const title = getFirst(entry, 'title') || '';
-  const source = getFirst(entry, 'source') || '';
-  const number = getFirst(entry, 'number') || '';
-  const year = getFirst(entry, 'year') || '';
-  const pages = getFirst(entry, 'art_pages') || '';
-  const note = getFirst(entry, 'abstract') || '';
-  const otherSources = getJoined(entry, 'other_sources');
-  const itemTypes = [...new Set(getProps(entry, 'item_type').map(v => v.toUpperCase()))];
+  const sortWord = getFirst(entry, "sort_word") || "";
+  const author = getFirst(entry, "author") || "";
+  const title = getFirst(entry, "title") || "";
+  const source = getFirst(entry, "source") || "";
+  const number = getFirst(entry, "number") || "";
+  const year = getFirst(entry, "year") || "";
+  const pages = getFirst(entry, "art_pages") || "";
+  const otherSources = getJoined(entry, "other_sources");
+  const itemTypes = [...new Set(getProps(entry, "item_type").map((v) => v.toUpperCase()))];
+
+  // collect all notes
+  const notesRaw = getProps(entry, "abstract");
+  const notes = notesRaw.map((n, i) => (i === 0 ? `Съдържа и: ${n}` : n));
 
   let line1 = `${sortWord}`;
   let line2 = `  ${title} / ${author}. - В: ${source}`;
   if (number) line2 += `. - бр. ${number}`;
   line2 += `, (${year}), ${pages}`;
   if (otherSources) line2 += `. – ${otherSources}`;
-  if (itemTypes.length > 0) line2 += `. – Item types: ${itemTypes.join(', ')}`;
 
-  return { mainLine: `${line1}\n${line2}`, note };
+  let itemTypeLine = "";
+  if (itemTypes.length > 0) {
+    itemTypeLine = `Item types: ${itemTypes.join(", ")}`;
+  }
+
+  return { mainLine: `${line1}\n${line2}`, notes, itemTypeLine };
 }
 
 // Parse for sorting
-const parsed = entries.map(entry => {
-  const itemTypes = getProps(entry, 'item_type').map(v => v.toUpperCase());
-  const primaryType = itemTypes.length > 0 ? itemTypes[0] : '';
-  const year = parseInt(getFirst(entry, 'year'), 10) || 0;
+const parsed = entries.map((entry) => {
+  const itemTypes = getProps(entry, "item_type").map((v) => v.toUpperCase());
+  const primaryType = itemTypes.length > 0 ? itemTypes[0] : "";
+  const year = parseInt(getFirst(entry, "year"), 10) || 0;
   return { entry, itemTypes, itemType: primaryType, year };
 });
 
 // Sort: KNG first, then others; within group by year ASC
 parsed.sort((a, b) => {
-  const aIsKNG = a.itemType === 'KNG';
-  const bIsKNG = b.itemType === 'KNG';
-
+  const aIsKNG = a.itemType === "KNG";
+  const bIsKNG = b.itemType === "KNG";
   if (aIsKNG && !bIsKNG) return -1;
   if (!aIsKNG && bIsKNG) return 1;
-
   return a.year - b.year;
 });
 
 // Split into categories
-const books = parsed.filter(p => p.itemType === 'KNG');
-const articles = parsed.filter(p => ['JOU', 'KRA', 'ARTICLE'].includes(p.itemType));
+const books = parsed.filter((p) => p.itemType === "KNG");
+const articles = parsed.filter((p) => ["JOU", "KRA", "ARTICLE", "DRU", "NSP"].includes(p.itemType));
 
 // Counts for summary
 const total = parsed.length;
@@ -143,34 +161,62 @@ const children = [];
 
 children.push(
   new Paragraph({
-    children: [new TextRun({ text: `Общо записи: ${total} (Книги: ${bookCount}, Статии: ${articleCount})`, bold: true })]
+    children: [
+      new TextRun({
+        text: `Общо записи: ${total} (Книги: ${bookCount}, Статии: ${articleCount})`,
+        bold: true,
+        size: 24,
+      }),
+    ],
   }),
-  new Paragraph({ text: '' })
+  new Paragraph({ text: "" })
 );
 
 if (books.length > 0) {
-  children.push(new Paragraph({ children: [new TextRun({ text: 'КНИГИ', bold: true })] }));
-  books.forEach(b => {
-    const { mainLine, note } = formatBook(b.entry);
-    mainLine.split('\n').forEach(line => children.push(new Paragraph({ text: line })));
-    if (note) children.push(new Paragraph({ text: note }));
-    children.push(new Paragraph({ text: '' }));
+  children.push(
+    new Paragraph({
+      children: [new TextRun({ text: "КНИГИ", bold: true, size: 24 })],
+    })
+  );
+  books.forEach((b) => {
+    const { mainLine, notes, itemTypeLine } = formatBook(b.entry);
+    mainLine.split("\n").forEach((line) =>
+      children.push(new Paragraph({ children: [new TextRun({ text: line, size: 24 })] }))
+    );
+    if (itemTypeLine)
+      children.push(new Paragraph({ children: [new TextRun({ text: itemTypeLine, size: 24 })] }));
+    if (notes)
+      notes.forEach((n) =>
+        children.push(new Paragraph({ children: [new TextRun({ text: n, italics: true, size: 24 })] }))
+      );
+    children.push(new Paragraph({ text: "" }));
   });
 }
 
 if (articles.length > 0) {
-  children.push(new Paragraph({ children: [new TextRun({ text: 'СТАТИИ', bold: true })] }));
-  articles.forEach(a => {
-    const { mainLine, note } = formatArticle(a.entry);
-    mainLine.split('\n').forEach(line => children.push(new Paragraph({ text: line })));
-    if (note) children.push(new Paragraph({ text: note }));
-    children.push(new Paragraph({ text: '' }));
+  children.push(
+    new Paragraph({
+      children: [new TextRun({ text: "СТАТИИ", bold: true, size: 24 })],
+    })
+  );
+  articles.forEach((a) => {
+    const { mainLine, notes, itemTypeLine } = formatArticle(a.entry);
+    mainLine.split("\n").forEach((line) =>
+      children.push(new Paragraph({ children: [new TextRun({ text: line, size: 24 })] }))
+    );
+    if (itemTypeLine)
+      children.push(new Paragraph({ children: [new TextRun({ text: itemTypeLine, size: 24 })] }));
+    if (notes)
+      notes.forEach((n) =>
+        children.push(new Paragraph({ children: [new TextRun({ text: n, italics: true, size: 24 })] }))
+      );
+    children.push(new Paragraph({ text: "" }));
   });
 }
 
 const doc = new Document({ sections: [{ children }] });
 
-Packer.toBuffer(doc).then(buffer => {
+Packer.toBuffer(doc).then((buffer) => {
   fs.writeFileSync(outputPath, buffer);
   console.log(`Sorted DOCX saved to ${outputPath}`);
 });
