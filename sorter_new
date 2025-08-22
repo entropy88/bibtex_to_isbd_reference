@@ -66,7 +66,7 @@ function formatBook(entry) {
   const series = getFirst(entry, "series") || "";
   const isbn = getFirst(entry, "isbn") || "";
   const book_info = getFirst(entry, "book_info") || "";
-  const otherSources = getJoined(entry, "other_sources");
+  const otherSources = getProps(entry, "other_sources"); // keep as array
   const itemTypes = [...new Set(getProps(entry, "item_type").map((v) => v.toUpperCase()))];
   const aboutPersons = getJoined(entry, "about_person", "; ");
 
@@ -104,14 +104,19 @@ function formatBook(entry) {
 
   if (series) line2 += `. – (${series})`;
   if (isbn) line2 += `. – ISBN ${isbn}`;
-  if (otherSources) line2 += `. – ${otherSources}`;
 
   let itemTypeLine = "";
   if (itemTypes.length > 0) {
     itemTypeLine = `Item types: ${itemTypes.join(", ")}`;
   }
 
-  return { mainLine: `${line01}\n${line1}\n${line2}`, notes, itemTypeLine, aboutPersons };
+  return {
+    mainLine: `${line01}\n${line1}\n${line2}`,
+    notes,
+    itemTypeLine,
+    aboutPersons,
+    otherSources,
+  };
 }
 
 function formatArticle(entry) {
@@ -122,7 +127,9 @@ function formatArticle(entry) {
   const number = getFirst(entry, "number") || "";
   const year = getFirst(entry, "year") || "";
   const pages = getFirst(entry, "art_pages") || "";
-  const otherSources = getJoined(entry, "other_sources");
+  const column = getFirst(entry, "column") || "";
+  const journalCity = getFirst(entry, "journal_city") || "";
+  const otherSources = getProps(entry, "other_sources"); // keep as array
   const itemTypes = [...new Set(getProps(entry, "item_type").map((v) => v.toUpperCase()))];
   const aboutPersons = getJoined(entry, "about_person", "; ");
 
@@ -132,16 +139,24 @@ function formatArticle(entry) {
   let line2 = `  ${title}`;
   if (author) line2 += ` / ${author}`;
   line2 += `. - В: ${source}`;
-  if (number) line2 += `. - бр. ${number}`;
-  line2 += `, (${year}), ${pages}`;
-  if (otherSources) line2 += `. – ${otherSources}`;
+  if (journalCity) line2 += ` (${journalCity})`;
+  if (number) line2 += ` , бр. ${number}`;
+  if (year) line2 += ` , (${year})`;
+  if (pages) line2 += ` , с. ${pages}`;
+  if (column) line2 += `, Колонка: ${column}`;
 
   let itemTypeLine = "";
   if (itemTypes.length > 0) {
     itemTypeLine = `Item types: ${itemTypes.join(", ")}`;
   }
 
-  return { mainLine: `${line1}\n${line2}`, notes, itemTypeLine, aboutPersons };
+  return {
+    mainLine: `${line1}\n${line2}`,
+    notes,
+    itemTypeLine,
+    aboutPersons,
+    otherSources,
+  };
 }
 
 function formatOther(entry) {
@@ -161,7 +176,7 @@ function formatOther(entry) {
     itemTypeLine = `Item types: ${itemTypes.join(", ")}`;
   }
 
-  return { mainLine: `${line1}\n${line2}`, notes, itemTypeLine, aboutPersons };
+  return { mainLine: `${line1}\n${line2}`, notes, itemTypeLine, aboutPersons, otherSources: [] };
 }
 
 // ============================
@@ -213,7 +228,7 @@ children.push(
 
 function pushEntry(formatFn, entries) {
   entries.forEach((e) => {
-    const { mainLine, notes, itemTypeLine, aboutPersons } = formatFn(e.entry);
+    const { mainLine, notes, itemTypeLine, aboutPersons, otherSources } = formatFn(e.entry);
     mainLine.split("\n").forEach((line) =>
       children.push(new Paragraph({ children: [new TextRun({ text: line, size: 24 })] }))
     );
@@ -232,6 +247,18 @@ function pushEntry(formatFn, entries) {
       notes.forEach((n) =>
         children.push(new Paragraph({ children: [new TextRun({ text: n, italics: true, size: 24 })] }))
       );
+
+    if (otherSources && otherSources.length > 0) {
+      otherSources.forEach((src, idx) => {
+        const prefix = idx === 0 ? "Вж. и: " : "";
+        children.push(
+          new Paragraph({
+            children: [new TextRun({ text: `${prefix}${src}`, size: 24 })],
+          })
+        );
+      });
+    }
+
     children.push(new Paragraph({ text: "" }));
   });
 }
