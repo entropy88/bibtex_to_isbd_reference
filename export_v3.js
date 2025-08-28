@@ -148,7 +148,7 @@ function formatArticle(entry) {
   let line2 = `  ${title}`;
   if (authorStr) {
     line2 += ` / ${authorStr}`;
-    if (column) line2 += `. — (${column})`;
+    if (column) line2 += `.(${column})`;
   }
 
   // Include source as placeholder for italics
@@ -308,3 +308,4 @@ Packer.toBuffer(doc).then((buffer) => {
   fs.writeFileSync(outputPath, buffer);
   console.log(`Sorted DOCX saved to ${outputPath}`);
 });
+
