@@ -121,7 +121,16 @@ function formatBook(entry) {
 
 function formatArticle(entry) {
   const sortWord = getFirst(entry, "sort_word") || "";
-  const author = getFirst(entry, "author") || "";
+
+  // BibTeX exports authors joined with " and "
+  let authorStr = getFirst(entry, "author") || "";
+  if (authorStr.includes(" and ")) {
+    authorStr = authorStr
+      .split(" and ")
+      .map(a => a.trim())
+      .join(", ");
+  }
+
   let title = getFirst(entry, "title") || "";
   const source = getFirst(entry, "source") || "";
   const issue = getFirst(entry, "issue") || "";
@@ -137,13 +146,17 @@ function formatArticle(entry) {
 
   let line1 = `${sortWord}`;
   let line2 = `  ${title}`;
-  if (author) line2 += ` / ${author}`;
+  
+  if (authorStr) {
+    line2 += ` / ${authorStr}`;
+    if (column) line2 += `. — (${column})`; // column directly after author
+  }
+
   line2 += `. - В: ${source}`;
   if (journalCity) line2 += ` (${journalCity})`;
   if (issue) line2 += ` , бр. ${issue}`;
   if (year) line2 += ` , (${year})`;
   if (pages) line2 += ` , ${pages}`;
-  if (column) line2 += `, Рубтика: ${column}`;
 
   let itemTypeLine = "";
   if (itemTypes.length > 0) {
@@ -158,6 +171,8 @@ function formatArticle(entry) {
     otherSources,
   };
 }
+
+
 
 function formatOther(entry) {
   const author = getFirst(entry, "author") || "";
