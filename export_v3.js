@@ -11,13 +11,11 @@ const rawData = fs.readFileSync(inputPath, "utf8");
 // Helper Functions
 // ============================
 
-// Split BibTeX entries
 const entries = rawData
   .split(/(?=^@)/m)
   .map((e) => e.trim())
   .filter(Boolean);
 
-// Extract all occurrences of a property
 function getProps(entry, propName) {
   const regex = new RegExp(`${propName}\\s*=\\s*\\{([^}]*)\\}`, "gi");
   let match;
@@ -28,26 +26,22 @@ function getProps(entry, propName) {
   return values;
 }
 
-// Get first value of a property
 function getFirst(entry, propName) {
   const vals = getProps(entry, propName);
   return vals.length > 0 ? vals[0] : "";
 }
 
-// Get joined values with deduplication
 function getJoined(entry, propName, sep = "; ") {
   const vals = getProps(entry, propName);
   const unique = [...new Set(vals)];
   return unique.join(sep);
 }
 
-// Clean notes
 function cleanNotes(entry) {
   const notesRaw = getProps(entry, "abstract");
   return notesRaw.map((n) => n.replace(/^Съдържа и:\s*/i, "").trim());
 }
 
-// Normalize BibTeX-style names (Last, First -> First Last)
 function normalizeAuthorName(name) {
   if (name.includes(",")) {
     const parts = name.split(",").map(p => p.trim());
@@ -58,7 +52,6 @@ function normalizeAuthorName(name) {
   return name.trim();
 }
 
-// Normalize multiple authors and join with comma
 function formatAuthors(rawAuthors) {
   if (!rawAuthors) return "";
   return rawAuthors
@@ -91,19 +84,13 @@ function formatBook(entry) {
   const book_info = getFirst(entry, "book_info") || "";
 
   const otherSources = getProps(entry, "other_sources"); // keep as array
-
   const itemTypes = [...new Set(getProps(entry, "item_type").map((v) => v.toUpperCase()))];
-  const aboutPersons = getJoined(entry, "about_person", "; ");
   const notes = cleanNotes(entry);
 
-  // Hide sortWord if itemtype is GOI
   const line1 = itemTypes.includes("GOI") ? "" : sortWord;
+  const line01 = `${main_sig}       ${dep_sig}`;
 
-  let line01 = `${main_sig}       ${dep_sig}`;
-
-  if (itemTypes.includes("CDD")) {
-    title += " [CD-ROM]";
-  }
+  if (itemTypes.includes("CDD")) title += " [CD-ROM]";
 
   let line2 = `  ${title}`;
   if (subtitle) line2 += ` : ${subtitle}`;
@@ -135,7 +122,6 @@ function formatBook(entry) {
     mainLine: `${line01}\n${line1}\n${line2}`,
     notes,
     itemTypeLine,
-    aboutPersons,
     otherSources,
   };
 }
@@ -156,8 +142,7 @@ function formatArticle(entry) {
   const column = getFirst(entry, "column") || "";
   const journalCity = getFirst(entry, "journal_city") || "";
 
-  const otherSources = getProps(entry, "other_sources"); // array
-  const aboutPersons = getJoined(entry, "about_person", "; ");
+  const otherSources = getProps(entry, "other_sources"); // array 
   const notes = cleanNotes(entry);
 
   let line2 = `  ${title}`;
@@ -166,7 +151,8 @@ function formatArticle(entry) {
     if (column) line2 += `. — (${column})`;
   }
 
-  if (source) line2 += `. - В: ${source}`; // italics applied in pushEntry
+  // Include source as placeholder for italics
+  if (source) line2 += `. - В: ${source}`;
   if (journalCity) line2 += ` (${journalCity})`;
   if (issue) line2 += ` , бр. ${issue}`;
   if (year) line2 += ` , (${year})`;
@@ -178,8 +164,7 @@ function formatArticle(entry) {
     mainLine: `${line1}\n${line2}`,
     notes,
     itemTypeLine,
-    aboutPersons,
-    otherSources,
+    otherSources
   };
 }
 
@@ -190,15 +175,14 @@ function formatOther(entry) {
   const year = getFirst(entry, "year") || "";
   const itemTypes = [...new Set(getProps(entry, "item_type").map((v) => v.toUpperCase()))];
   const notes = cleanNotes(entry);
-  const aboutPersons = getJoined(entry, "about_person", "; ");
-
+  
   let line1 = `${author}`;
   let line2 = `  ${title}`;
   if (year) line2 += ` (${year})`;
 
   const itemTypeLine = itemTypes.length > 0 ? `Item types: ${itemTypes.join(", ")}` : "";
 
-  return { mainLine: `${line1}\n${line2}`, notes, itemTypeLine, aboutPersons, otherSources: [] };
+  return { mainLine: `${line1}\n${line2}`, notes, itemTypeLine,  otherSources: [] };
 }
 
 // ============================
@@ -226,8 +210,8 @@ const books = parsed.filter((p) => bookTypes.includes((p.itemType || "").toUpper
 const articles = parsed.filter((p) => articleTypes.includes((p.itemType || "").toUpperCase()));
 const others = parsed.filter(
   (p) =>
-    !bookTypes.includes((p.itemType || "").toUpperCase()) && 
-   !articleTypes.includes((p.itemType || "").toUpperCase())
+    !bookTypes.includes((p.itemType || "").toUpperCase()) &&
+    !articleTypes.includes((p.itemType || "").toUpperCase())
 );
 
 // ============================
@@ -252,20 +236,20 @@ children.push(
 
 function pushEntry(formatFn, entries) {
   entries.forEach((e) => {
-    const { mainLine, notes, itemTypeLine, aboutPersons, otherSources } = formatFn(e.entry);
+    const { mainLine, notes, itemTypeLine, otherSources } = formatFn(e.entry);
 
-    // Render main lines
     mainLine.split("\n").forEach((line) => {
-      // Italicize source if indicated by "В: "
-      const sourceMatch = line.match(/В: (.+)/);
+      const sourceMatch = line.match(/В: ([^,]+)/); // match only source
       if (sourceMatch) {
-        const beforeSource = line.slice(0, sourceMatch.index + 3); // include "В: "
+        const beforeSource = line.slice(0, sourceMatch.index + 3);
         const sourceText = sourceMatch[1];
+        const afterSource = line.slice(sourceMatch.index + 3 + sourceText.length);
         children.push(
           new Paragraph({
             children: [
               new TextRun({ text: beforeSource, size: 24 }),
               new TextRun({ text: sourceText, italics: true, size: 24 }),
+              new TextRun({ text: afterSource, size: 24 }),
             ],
           })
         );
@@ -277,6 +261,8 @@ function pushEntry(formatFn, entries) {
     if (itemTypeLine)
       children.push(new Paragraph({ children: [new TextRun({ text: itemTypeLine, size: 24 })] }));
 
+    
+
     // Notes indented one tab
     if (notes)
       notes.forEach((n) =>
@@ -285,10 +271,10 @@ function pushEntry(formatFn, entries) {
         )
       );
 
-    // Other sources
+    // Other sources indented one tab
     if (otherSources && otherSources.length > 0) {
       otherSources.forEach((src, idx) => {
-        const prefix = idx === 0 ? "Вж. и: " : "";
+        const prefix = idx === 0 ? "\tВж. и: " : "\t";
         children.push(
           new Paragraph({
             children: [new TextRun({ text: `${prefix}${src}`, size: 24 })],
@@ -301,7 +287,6 @@ function pushEntry(formatFn, entries) {
   });
 }
 
-// Push entries by type
 if (books.length > 0) {
   children.push(new Paragraph({ children: [new TextRun({ text: "КНИГИ", bold: true, size: 24 })] }));
   pushEntry(formatBook, books);
@@ -317,7 +302,6 @@ if (others.length > 0) {
   pushEntry(formatOther, others);
 }
 
-// Generate DOCX
 const doc = new Document({ sections: [{ children }] });
 
 Packer.toBuffer(doc).then((buffer) => {
