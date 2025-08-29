@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { Document, Packer, Paragraph, TextRun } = require("docx");
 
-const inputPath = path.join(__dirname, "test_bobi.bibtex");
+const inputPath = path.join(__dirname, "shelf_old.bibtex");
 const outputPath = path.join(__dirname, "sorted_shelf.docx");
 
 const rawData = fs.readFileSync(inputPath, "utf8");
@@ -67,6 +67,44 @@ function getSortWord(entry) {
 }
 
 // ============================
+// NEW Helper Function: robust pairing
+// ============================
+function getAlsoPairsSingleLine(entry) {
+  const sources = getProps(entry, "also_source").map(s => s.trim());
+  let descriptions = getProps(entry, "also_description")
+    .flatMap(d => d.split(";")) // split multiple entries in one field
+    .map(d => d.trim())
+    .filter(Boolean);
+
+  const pairs = [];
+  let descIndex = 0;
+
+  for (let i = 0; i < sources.length; i++) {
+    const src = sources[i];
+    let desc = "";
+
+    if (descIndex < descriptions.length) {
+      // For last source, attach all remaining descriptions
+      if (i === sources.length - 1) {
+        desc = descriptions.slice(descIndex).join(";"); // <- no space after semicolon
+        descIndex = descriptions.length;
+      } else {
+        desc = descriptions[descIndex];
+        descIndex++;
+      }
+    }
+
+    // only add comma if desc does NOT start with ',' or '('
+    const sep = desc.startsWith(",") || desc.startsWith("(") || desc === "" ? "" : ", ";
+    pairs.push((src + sep + desc).trim());
+  }
+
+  if (pairs.length === 0) return "";
+
+  return pairs.join(";") + ";"; // <- join without extra space
+}
+
+// ============================
 // Formatting Functions
 // ============================
 
@@ -88,7 +126,8 @@ function formatBook(entry) {
   const isbn = getFirst(entry, "isbn") || "";
   const book_info = getFirst(entry, "book_info") || "";
 
-  const otherSources = getProps(entry, "other_sources");
+  const otherSources = getAlsoPairsSingleLine(entry);
+
   const itemTypes = [...new Set(getProps(entry, "item_type").map((v) => v.toUpperCase()))];
   const notes = cleanNotes(entry);
 
@@ -147,7 +186,7 @@ function formatArticle(entry) {
   const column = getFirst(entry, "column") || "";
   const journalCity = getFirst(entry, "journal_city") || "";
 
-  const otherSources = getProps(entry, "other_sources");
+  const otherSources = getAlsoPairsSingleLine(entry);
   const notes = cleanNotes(entry);
 
   let line2 = `  ${title}`;
@@ -179,14 +218,16 @@ function formatOther(entry) {
   const year = getFirst(entry, "year") || "";
   const itemTypes = [...new Set(getProps(entry, "item_type").map((v) => v.toUpperCase()))];
   const notes = cleanNotes(entry);
-  
+
   let line1 = itemTypes.includes("GOI") ? "" : responsibility;
   let line2 = `  ${title}`;
   if (year) line2 += ` (${year})`;
 
   const itemTypeLine = itemTypes.length > 0 ? `Item types: ${itemTypes.join(", ")}` : "";
 
-  return { mainLine: `${line1}\n${line2}`, notes, itemTypeLine,  otherSources: [] };
+  const otherSources = getAlsoPairsSingleLine(entry);
+
+  return { mainLine: `${line1}\n${line2}`, notes, itemTypeLine, otherSources };
 }
 
 // ============================
@@ -243,23 +284,7 @@ function pushEntry(formatFn, entries) {
     const { mainLine, notes, itemTypeLine, otherSources } = formatFn(e.entry);
 
     mainLine.split("\n").forEach((line) => {
-      const sourceMatch = line.match(/В: ([^,]+)/);
-      if (sourceMatch) {
-        const beforeSource = line.slice(0, sourceMatch.index + 3);
-        const sourceText = sourceMatch[1];
-        const afterSource = line.slice(sourceMatch.index + 3 + sourceText.length);
-        children.push(
-          new Paragraph({
-            children: [
-              new TextRun({ text: beforeSource, size: 24 }),
-              new TextRun({ text: sourceText, italics: true, size: 24 }),
-              new TextRun({ text: afterSource, size: 24 }),
-            ],
-          })
-        );
-      } else {
-        children.push(new Paragraph({ children: [new TextRun({ text: line, size: 24 })] }));
-      }
+      children.push(new Paragraph({ children: [new TextRun({ text: line, size: 24 })] }));
     });
 
     if (itemTypeLine)
@@ -272,15 +297,13 @@ function pushEntry(formatFn, entries) {
         )
       );
 
-    if (otherSources && otherSources.length > 0) {
-      otherSources.forEach((src, idx) => {
-        const prefix = idx === 0 ? "\tВж. и: " : "\t";
-        children.push(
-          new Paragraph({
-            children: [new TextRun({ text: `${prefix}${src}`, size: 24 })],
-          })
-        );
-      });
+    // Only add Вж. и: if there is content
+    if (otherSources && otherSources.trim()) {
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: "\tВж. и: " + otherSources, size: 24 })],
+        })
+      );
     }
 
     children.push(new Paragraph({ text: "" }));
