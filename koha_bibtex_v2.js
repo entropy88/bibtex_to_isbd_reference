@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { Document, Packer, Paragraph, TextRun } = require("docx");
 
-const inputPath = path.join(__dirname, "shelf_old.bibtex");
+const inputPath = path.join(__dirname, "yearbooks.bibtex");
 const outputPath = path.join(__dirname, "sorted_shelf.docx");
 
 const rawData = fs.readFileSync(inputPath, "utf8");
@@ -215,32 +215,53 @@ function formatArticle(entry) {
 // NEW: Yearbook Formatter; handles multiple cases because structure SUCKS MASSIVE ASS
 // ============================
 function formatYearbook(entry) {
+  // Extract relevant fields from the BibTeX entry
   const mainSig = getFirst(entry, "main_sig") || "";
   const title = getFirst(entry, "title") || "";
   const subtitle = getFirst(entry, "subtitle") || getFirst(entry, "substitle") || "";
   const responsibility = getFirst(entry, "responsibility") || "";
-  const edition = getFirst(entry, "edition") || "";
+  const editionRaw = getFirst(entry, "edition") || ""; // can be publication info OR extent
   const publisher = getFirst(entry, "publisher") || "";
   const address = getFirst(entry, "address") || getFirst(entry, "place") || "";
   const year = getFirst(entry, "year") || "";
-  const extent = getFirst(entry, "page_count") || getFirst(entry, "extent") || "";
-  const aboutPersons = [...new Set(getProps(entry, "about_person"))];
+  let extent = getFirst(entry, "page_count") || getFirst(entry, "extent") || "";
+  const aboutPersons = [...new Set(getProps(entry, "about_person"))]; // deduplicate
 
   const lines = [];
 
+  // 1. Add library signature (main_sig) on its own line
   if (mainSig) lines.push(mainSig);
 
-  // Build ISBD record
+  // 2. Decide how to interpret "edition"
+  let editionPub = "";    // for publication info
+  let editionExtent = ""; // for extent info (pages, illustrations, etc.)
+
+  if (editionRaw) {
+    if (/с\./i.test(editionRaw)) {
+      // If the string contains "с." → it's describing pages or illustrations
+      editionExtent = editionRaw;
+    } else {
+      // Otherwise → assume it's publication statement (place, publisher, year)
+      editionPub = editionRaw;
+    }
+  }
+
+  // 3. Build the ISBD description line
   let isbdLine = "";
 
+  // Title and subtitle
   if (title) isbdLine += title;
   if (subtitle) isbdLine += " : " + subtitle;
+
+  // Statement of responsibility
   if (responsibility) isbdLine += " / " + responsibility;
 
-  // Edition OR publication info
-  if (edition) {
-    isbdLine += ". – " + edition;
+  // Publication information
+  if (editionPub) {
+    // Directly use edition if it looks like publication info
+    isbdLine += ". – " + editionPub;
   } else if (address || publisher || year) {
+    // Or construct publication info from address, publisher, year
     let pubBlock = "";
     if (address) pubBlock += address;
     if (publisher) pubBlock += (pubBlock ? " : " : "") + publisher;
@@ -248,17 +269,21 @@ function formatYearbook(entry) {
     if (pubBlock) isbdLine += ". – " + pubBlock;
   }
 
-  // Add extent (pages) at the end
-  if (extent) {
-    isbdLine += ". – " + extent;
+  // Extent (priority: editionExtent > extent field)
+  const finalExtent = editionExtent || extent;
+  if (finalExtent) {
+    isbdLine += ". – " + finalExtent;
   }
 
+  // Add the ISBD record line
   if (isbdLine) lines.push(isbdLine);
 
+  // 4. Add "about persons" (if any) as final line
   if (aboutPersons.length > 0) {
     lines.push("Имена на лица, за които става дума: " + aboutPersons.join(", "));
   }
 
+  // 5. Return in the same structure used by other formatters
   return {
     mainLine: lines.join("\n"),
     notes: [],
