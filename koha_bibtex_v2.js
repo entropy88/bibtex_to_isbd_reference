@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { Document, Packer, Paragraph, TextRun } = require("docx");
 
-const inputPath = path.join(__dirname, "yearbooks.bibtex");
+const inputPath = path.join(__dirname, "shelf_old.bibtex");
 const outputPath = path.join(__dirname, "sorted_shelf.docx");
 
 const rawData = fs.readFileSync(inputPath, "utf8");
@@ -63,9 +63,18 @@ function formatResponsibility(rawResp) {
 function getSortWord(entry) {
   const base = getFirst(entry, "sort_word") || "";
   const rawResp = getFirst(entry, "responsibility") || "";
+  const itemTypes = getProps(entry, "item_type").map((v) => v.toUpperCase());
+
   if (!rawResp) return base;
+
   const parts = rawResp.split(/\s*(?:and|;)\s*/i).filter(Boolean);
-  return parts.length > 1 ? `${base} и др.` : base;
+
+  // ✅ Append "и др." only if there are multiple authors AND no GOI item type
+  if (parts.length > 1 && !itemTypes.includes("GOI")) {
+    return `${base} и др.`;
+  }
+
+  return base;
 }
 
 // ============================
@@ -176,6 +185,9 @@ function formatArticle(entry) {
   const rawResp = getFirst(entry, "responsibility") || "";
   const responsibility = formatResponsibility(rawResp);
 
+  const main_sig = getFirst(entry, "main_sig") || "";
+  const dep_sig = getFirst(entry, "dep_sig") || "";
+
   const line1 = itemTypes.includes("GOI") ? "" : sortWord;
 
   let title = getFirst(entry, "title") || "";
@@ -189,28 +201,42 @@ function formatArticle(entry) {
   const otherSources = getAlsoPairsSingleLine(entry);
   const notes = cleanNotes(entry);
 
-  let line2 = `  ${title}`;
+  // build line2 as styled chunks
+  const line2Parts = [];
+
+  line2Parts.push({ text: `  ${title}` });
+
   if (responsibility && !itemTypes.includes("GOI")) {
-    line2 += ` / ${responsibility}`;
-    if (column) line2 += `.(${column})`;
+    line2Parts.push({ text: ` / ${responsibility}` });
+    if (column) line2Parts.push({ text: `.(${column})` });
   }
 
-  if (source) line2 += `. - В: ${source}`;
-  if (journalCity) line2 += ` (${journalCity})`;
-  if (issue) line2 += ` , бр. ${issue}`;
-  if (year) line2 += ` , (${year})`;
-  if (pages) line2 += ` , ${pages}`;
+  if (source) {
+    line2Parts.push({ text: `. - В: ` });
+    line2Parts.push({ text: source, italics: true }); // ✅ italicized
+  }
+
+  if (journalCity) line2Parts.push({ text: ` (${journalCity})` });
+  if (issue) line2Parts.push({ text: ` , бр. ${issue}` });
+  if (year) line2Parts.push({ text: ` , (${year})` });
+  if (pages) line2Parts.push({ text: ` , ${pages}` });
 
   const itemTypeLine = itemTypes.length > 0 ? `Item types: ${itemTypes.join(", ")}` : "";
 
+  // ✅ Only show signatures when there are exactly two item types and one of them is GOI
+  let sigLine = "";
+  if (itemTypes.length === 2 && itemTypes.includes("GOI")) {
+    sigLine = `${main_sig}       ${dep_sig}`;
+  }
+
   return {
-    mainLine: `${line1}\n${line2}`,
+    mainLine: `${sigLine ? sigLine + "\n" : ""}${line1}`, // only non-styled part
+    styledLine2: line2Parts, // send styled chunks separately
     notes,
     itemTypeLine,
     otherSources,
   };
 }
-
 // ============================
 // NEW: Yearbook Formatter; handles multiple cases because structure SUCKS MASSIVE ASS
 // ============================
@@ -364,24 +390,57 @@ children.push(
   new Paragraph({ text: "" })
 );
 
-function pushEntry(formatFn, entries) {
-  entries.forEach((e) => {
-    const { mainLine, notes, itemTypeLine, otherSources } = formatFn(e.entry);
+function pushEntry(formatFn, rawEntries) {
+  rawEntries.forEach((entry) => {
+    const { mainLine, styledLine2, notes, itemTypeLine, otherSources } = formatFn(entry);
 
-    mainLine.split("\n").forEach((line) => {
-      children.push(new Paragraph({ children: [new TextRun({ text: line, size: 24 })] }));
-    });
+    // handle multi-line mainLine (plain text)
+    if (mainLine) {
+      mainLine.split("\n").forEach((line) => {
+        if (line.trim()) {
+          children.push(
+            new Paragraph({ children: [new TextRun({ text: line, size: 24 })] })
+          );
+        }
+      });
+    }
 
-    if (itemTypeLine)
-      children.push(new Paragraph({ children: [new TextRun({ text: itemTypeLine, size: 24 })] }));
+    // handle styled line (e.g., italic source for articles)
+    if (styledLine2 && styledLine2.length > 0) {
+      children.push(
+        new Paragraph({
+          children: styledLine2.map(
+            (part) =>
+              new TextRun({
+                text: part.text,
+                italics: part.italics || false,
+                bold: part.bold || false,
+                size: 24,
+              })
+          ),
+        })
+      );
+    }
 
-    if (notes)
+    // item types
+    if (itemTypeLine) {
+      children.push(
+        new Paragraph({ children: [new TextRun({ text: itemTypeLine, size: 24 })] })
+      );
+    }
+
+    // notes
+    if (notes && notes.length > 0) {
       notes.forEach((n) =>
         children.push(
-          new Paragraph({ children: [new TextRun({ text: "\t" + n, italics: true, size: 24 })] })
+          new Paragraph({
+            children: [new TextRun({ text: "\t" + n, italics: true, size: 24 })],
+          })
         )
       );
+    }
 
+    // other sources
     if (otherSources && otherSources.trim()) {
       children.push(
         new Paragraph({
@@ -390,29 +449,35 @@ function pushEntry(formatFn, entries) {
       );
     }
 
+    // spacer line
     children.push(new Paragraph({ text: "" }));
   });
 }
-
 if (books.length > 0) {
-  children.push(new Paragraph({ children: [new TextRun({ text: "КНИГИ", bold: true, size: 24 })] }));
+  children.push(
+    new Paragraph({ children: [new TextRun({ text: "КНИГИ", bold: true, size: 24 })] })
+  );
   books.forEach((b) => {
     if (yearbooks.includes(b)) {
-      pushEntry(formatYearbook, [b]);
+      pushEntry(formatYearbook, [b.entry]); // raw entry
     } else {
-      pushEntry(formatBook, [b]);
+      pushEntry(formatBook, [b.entry]); // raw entry
     }
   });
 }
 
 if (articles.length > 0) {
-  children.push(new Paragraph({ children: [new TextRun({ text: "СТАТИИ", bold: true, size: 24 })] }));
-  pushEntry(formatArticle, articles);
+  children.push(
+    new Paragraph({ children: [new TextRun({ text: "СТАТИИ", bold: true, size: 24 })] })
+  );
+  pushEntry(formatArticle, articles.map((a) => a.entry)); // unwrap entries
 }
 
 if (others.length > 0) {
-  children.push(new Paragraph({ children: [new TextRun({ text: "ДРУГИ", bold: true, size: 24 })] }));
-  pushEntry(formatOther, others);
+  children.push(
+    new Paragraph({ children: [new TextRun({ text: "ДРУГИ", bold: true, size: 24 })] })
+  );
+  pushEntry(formatOther, others.map((o) => o.entry)); // unwrap entries
 }
 
 const doc = new Document({ sections: [{ children }] });
