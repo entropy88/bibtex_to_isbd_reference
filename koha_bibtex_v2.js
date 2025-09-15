@@ -225,7 +225,7 @@ function formatArticle(entry) {
   if (journalCity) line2Parts.push({ text: ` (${journalCity})` });
   if (issue) line2Parts.push({ text: ` , бр. ${issue}` });
   if (year) line2Parts.push({ text: ` , (${year})` });
-  if (pages) line2Parts.push({ text: ` , ${pages}` });
+  if (pages) line2Parts.push({ text: ` , ${pages}.` });
 
   const itemTypeLine = itemTypes.length > 0 ? `Item types: ${itemTypes.join(", ")}` : "";
 
@@ -492,4 +492,5 @@ Packer.toBuffer(doc).then((buffer) => {
   fs.writeFileSync(outputPath, buffer);
   console.log(`Sorted DOCX saved to ${outputPath}`);
 });
+
 
