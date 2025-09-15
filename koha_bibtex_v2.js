@@ -69,13 +69,19 @@ function getSortWord(entry) {
 
   const parts = rawResp.split(/\s*(?:and|;)\s*/i).filter(Boolean);
 
-  // ✅ Append "и др." only if there are multiple authors AND no GOI item type
+  // If multiple authors and not GOI → use first author inverted + "и др."
   if (parts.length > 1 && !itemTypes.includes("GOI")) {
-    return `${base} и др.`;
+    const first = normalizeAuthorName(parts[0]); // "Firstname Lastname" or "Lastname, Firstname"
+    let inverted = first;
+    if (!first.includes(",")) {
+      const nameParts = first.split(" ");
+      if (nameParts.length > 1) {
+        const last = nameParts.pop();
+        inverted = `${last}, ${nameParts.join(" ")}`;
+      }
+    }
+    return `${inverted} и др.`;
   }
-
-  return base;
-}
 
 // ============================
 // NEW Helper Function: robust pairing
@@ -486,3 +492,4 @@ Packer.toBuffer(doc).then((buffer) => {
   fs.writeFileSync(outputPath, buffer);
   console.log(`Sorted DOCX saved to ${outputPath}`);
 });
+
