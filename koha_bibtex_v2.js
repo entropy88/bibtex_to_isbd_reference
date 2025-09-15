@@ -110,7 +110,7 @@ function getAlsoPairsSingleLine(entry) {
 
   if (pairs.length === 0) return "";
 
-  return pairs.join(";") + ";";
+  return pairs.join(";") + "; ";
 }
 
 // ============================
@@ -205,14 +205,14 @@ function formatArticle(entry) {
   const line2Parts = [];
 
   line2Parts.push({ text: `  ${title}` });
-
+  if (column) line2Parts.push({ text: `. (${column})` });
   if (responsibility && !itemTypes.includes("GOI")) {
     line2Parts.push({ text: ` / ${responsibility}` });
-    if (column) line2Parts.push({ text: `.(${column})` });
+
   }
 
   if (source) {
-    line2Parts.push({ text: `. - В: ` });
+    line2Parts.push({ text: `. – В: ` });
     line2Parts.push({ text: source, italics: true }); // ✅ italicized
   }
 
